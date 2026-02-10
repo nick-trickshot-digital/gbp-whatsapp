@@ -42,17 +42,7 @@ export async function oauthRoutes(app: FastifyInstance) {
     try {
       await exchangeCodeForTokens(clientId, code);
       log.info({ clientId }, 'GBP OAuth completed successfully');
-
-      // Redirect back to admin dashboard if the flow originated from there
-      const referer = request.headers.referer ?? '';
-      if (referer.includes('/admin')) {
-        return reply.redirect('/admin/clients');
-      }
-
-      return reply.send({
-        status: 'ok',
-        message: `GBP access configured for client ${clientId}`,
-      });
+      return reply.redirect('/admin/clients');
     } catch (err) {
       log.error({ err, clientId }, 'Failed to exchange OAuth code');
       return reply.status(500).send({ error: 'Failed to complete OAuth' });
