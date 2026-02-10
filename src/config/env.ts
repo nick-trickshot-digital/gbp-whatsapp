@@ -29,6 +29,10 @@ const envSchema = z.object({
   // GitHub
   GITHUB_TOKEN: z.string().min(1),
 
+  // Admin dashboard
+  ADMIN_PASSWORD: z.string().min(8),
+  ADMIN_SESSION_SECRET: z.string().min(32),
+
   // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
