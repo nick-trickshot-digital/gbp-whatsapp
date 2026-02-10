@@ -21,5 +21,10 @@ export const db = drizzle(sqlite, { schema });
 export { sqlite };
 
 // Run migrations on startup
+// In dev: __dirname = src/db → migrations at src/db/migrations
+// In prod: __dirname = dist/db → migrations at src/db/migrations (copied by Dockerfile)
 const __dirname = dirname(fileURLToPath(import.meta.url));
-migrate(db, { migrationsFolder: resolve(__dirname, 'migrations') });
+const migrationsPath = __dirname.includes('dist')
+  ? resolve(__dirname, '../../src/db/migrations')
+  : resolve(__dirname, 'migrations');
+migrate(db, { migrationsFolder: migrationsPath });
