@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { logger } from './lib/logger.js';
+import { config } from './config/env.js';
 import { healthRoutes } from './routes/health.js';
 import { webhookRoutes } from './routes/webhook.js';
 import { oauthRoutes } from './routes/oauth.js';
@@ -8,7 +8,12 @@ import { globalErrorHandler } from './middleware/error-handler.js';
 
 export async function buildServer() {
   const app = Fastify({
-    logger: logger,
+    logger: {
+      level: config.LOG_LEVEL,
+      ...(config.NODE_ENV === 'development'
+        ? { transport: { target: 'pino-pretty', options: { colorize: true } } }
+        : {}),
+    },
   });
 
   app.setErrorHandler(globalErrorHandler);
