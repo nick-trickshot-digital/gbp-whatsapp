@@ -20,8 +20,10 @@ export async function webhookRoutes(app: FastifyInstance) {
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'buffer' },
-    (_req, body, done) => {
+    (req, body, done) => {
       try {
+        // Store the actual raw bytes for HMAC signature verification
+        (req as FastifyRequest & { rawBody?: Buffer }).rawBody = body as Buffer;
         const json = JSON.parse(body.toString());
         done(null, json);
       } catch (err) {
@@ -29,14 +31,6 @@ export async function webhookRoutes(app: FastifyInstance) {
       }
     },
   );
-
-  // Store raw body on request for signature validation
-  app.addHook('preHandler', async (request) => {
-    if (request.url === '/webhook' && request.method === 'POST') {
-      (request as FastifyRequest & { rawBody?: Buffer }).rawBody =
-        Buffer.from(JSON.stringify(request.body));
-    }
-  });
 
   // GET /webhook — Meta verification endpoint
   app.get('/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
