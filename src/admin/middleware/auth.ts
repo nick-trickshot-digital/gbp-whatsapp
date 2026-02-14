@@ -52,14 +52,14 @@ export async function requireAdmin(
 export function setSessionCookie(reply: FastifyReply): void {
   const value = signSession(Math.floor(Date.now() / 1000));
   reply.setCookie('admin_session', value, {
-    path: '/admin',
+    path: '/',
     httpOnly: true,
-    sameSite: 'strict',
+    sameSite: 'lax',
     secure: config.NODE_ENV === 'production',
     maxAge: SESSION_MAX_AGE,
   });
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
-  reply.clearCookie('admin_session', { path: '/admin' });
+  reply.clearCookie('admin_session', { path: '/' });
 }
