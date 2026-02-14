@@ -4,6 +4,8 @@ import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
 import { clientsListPage } from '../views/clients-list.js';
 import { clientFormPage } from '../views/client-form.js';
+import { selectLocationPage } from '../views/select-location.js';
+import { listAllLocations } from '../../services/gbp/auth.js';
 
 export async function clientRoutes(app: FastifyInstance) {
   // List all clients
@@ -101,5 +103,56 @@ export async function clientRoutes(app: FastifyInstance) {
   app.get('/clients/:id/oauth', async (request: FastifyRequest, reply: FastifyReply) => {
     const { id } = request.params as { id: string };
     reply.redirect(`/oauth/start?clientId=${id}`);
+  });
+
+  // Location selection page — shown after OAuth to pick the GBP location
+  app.get('/clients/:id/select-location', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const clientId = parseInt(id, 10);
+
+    const client = await db.select().from(clients).where(eq(clients.id, clientId)).get();
+    if (!client) {
+      reply.status(404).type('text/html').send('<h2>Client not found</h2>');
+      return;
+    }
+
+    if (!client.gbpAccessToken) {
+      reply.redirect(`/admin/clients/${id}/oauth`);
+      return;
+    }
+
+    const locations = await listAllLocations(clientId);
+    reply.type('text/html').send(selectLocationPage(clientId, client.businessName, locations));
+  });
+
+  // Save selected location
+  app.post('/clients/:id/select-location', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const clientId = parseInt(id, 10);
+    const body = request.body as Record<string, string>;
+
+    let accountId: string;
+    let locationId: string;
+
+    if (body.manualAccountId && body.manualLocationId) {
+      // Manual entry takes priority
+      accountId = body.manualAccountId.trim();
+      locationId = body.manualLocationId.trim();
+    } else if (body.location) {
+      // Radio button selection: "accountId|locationId"
+      const [acct, loc] = body.location.split('|');
+      accountId = acct;
+      locationId = loc;
+    } else {
+      reply.redirect(`/admin/clients/${id}/select-location`);
+      return;
+    }
+
+    await db
+      .update(clients)
+      .set({ gbpAccountId: accountId, gbpLocationId: locationId })
+      .where(eq(clients.id, clientId));
+
+    reply.redirect('/admin/clients');
   });
 }

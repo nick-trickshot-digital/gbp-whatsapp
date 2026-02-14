@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getConsentUrl, exchangeCodeForTokens, discoverAccountAndLocation } from '../services/gbp/auth.js';
+import { getConsentUrl, exchangeCodeForTokens } from '../services/gbp/auth.js';
 import { createChildLogger } from '../lib/logger.js';
 
 const log = createChildLogger('oauth');
@@ -42,16 +42,7 @@ export async function oauthRoutes(app: FastifyInstance) {
     try {
       await exchangeCodeForTokens(clientId, code);
       log.info({ clientId }, 'GBP OAuth completed successfully');
-
-      // Auto-discover account and location IDs (non-blocking — don't fail OAuth on this)
-      try {
-        await discoverAccountAndLocation(clientId);
-        log.info({ clientId }, 'GBP account/location auto-discovered');
-      } catch (discoverErr) {
-        log.warn({ err: discoverErr, clientId }, 'Auto-discovery failed — set IDs manually in admin');
-      }
-
-      return reply.redirect('/admin/clients');
+      return reply.redirect(`/admin/clients/${clientId}/select-location`);
     } catch (err) {
       log.error({ err, clientId }, 'Failed to exchange OAuth code');
       return reply.status(500).send({ error: 'Failed to complete OAuth' });
