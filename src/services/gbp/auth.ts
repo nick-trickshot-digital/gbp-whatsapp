@@ -111,7 +111,7 @@ export async function getAuthenticatedClient(clientId: number) {
 
 /**
  * After OAuth, discover the GBP account and location IDs and store them.
- * Uses the Account Management and Business Information APIs.
+ * Searches all accounts for a location matching the client's business name.
  */
 export async function discoverAccountAndLocation(clientId: number): Promise<void> {
   const auth = await getAuthenticatedClient(clientId);
@@ -121,7 +121,19 @@ export async function discoverAccountAndLocation(clientId: number): Promise<void
     throw new Error('Failed to get GBP access token for discovery');
   }
 
-  // Step 1: List accounts
+  // Get the client's business name for matching
+  const client = await db
+    .select({ businessName: clients.businessName })
+    .from(clients)
+    .where(eq(clients.id, clientId))
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (!client) {
+    throw new Error(`Client ${clientId} not found`);
+  }
+
+  // Step 1: List all accounts
   const accountsRes = await fetch(
     'https://mybusinessaccountmanagement.googleapis.com/v1/accounts',
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -142,50 +154,68 @@ export async function discoverAccountAndLocation(clientId: number): Promise<void
     return;
   }
 
-  // Use the first account (most users have one)
-  const account = accountsData.accounts[0];
-  const accountId = account.name.replace('accounts/', '');
-  log.info({ clientId, accountId, accountName: account.accountName }, 'Discovered GBP account');
-
-  // Step 2: List locations for this account
-  const locationsRes = await fetch(
-    `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${accountId}/locations?readMask=name,title`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+  log.info(
+    { clientId, accounts: accountsData.accounts.map((a) => ({ name: a.name, accountName: a.accountName, type: a.type })) },
+    'Found GBP accounts',
   );
 
-  if (!locationsRes.ok) {
-    const err = await locationsRes.json().catch(() => ({}));
-    log.error({ clientId, err }, 'Failed to list GBP locations');
-    // Still save the account ID even if locations fail
+  const businessNameLower = client.businessName.toLowerCase();
+
+  // Step 2: Search all accounts for locations, matching by business name
+  for (const account of accountsData.accounts) {
+    const accountId = account.name.replace('accounts/', '');
+
+    const locationsRes = await fetch(
+      `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${accountId}/locations?readMask=name,title`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    if (!locationsRes.ok) {
+      log.warn({ clientId, accountId }, 'Failed to list locations for account, skipping');
+      continue;
+    }
+
+    const locationsData = (await locationsRes.json()) as {
+      locations?: Array<{ name: string; title: string }>;
+    };
+
+    if (!locationsData.locations?.length) {
+      log.info({ clientId, accountId, accountName: account.accountName }, 'No locations in this account');
+      continue;
+    }
+
+    log.info(
+      { clientId, accountId, locations: locationsData.locations.map((l) => ({ name: l.name, title: l.title })) },
+      'Found locations in account',
+    );
+
+    // Try to match by business name
+    const match = locationsData.locations.find(
+      (l) => l.title.toLowerCase().includes(businessNameLower) || businessNameLower.includes(l.title.toLowerCase()),
+    );
+
+    const location = match || locationsData.locations[0];
+    const locationId = location.name.replace('locations/', '');
+
+    if (match) {
+      log.info({ clientId, accountId, locationId, title: location.title }, 'Matched GBP location by business name');
+    } else {
+      log.info({ clientId, accountId, locationId, title: location.title }, 'Using first location (no name match)');
+    }
+
     await db
       .update(clients)
-      .set({ gbpAccountId: accountId })
+      .set({ gbpAccountId: accountId, gbpLocationId: locationId })
       .where(eq(clients.id, clientId));
     return;
   }
 
-  const locationsData = (await locationsRes.json()) as {
-    locations?: Array<{ name: string; title: string }>;
-  };
-
-  if (!locationsData.locations?.length) {
-    log.warn({ clientId, accountId }, 'No GBP locations found for this account');
-    await db
-      .update(clients)
-      .set({ gbpAccountId: accountId })
-      .where(eq(clients.id, clientId));
-    return;
-  }
-
-  // Use the first location (most small businesses have one)
-  const location = locationsData.locations[0];
-  const locationId = location.name.replace(`locations/`, '');
-  log.info({ clientId, accountId, locationId, title: location.title }, 'Discovered GBP location');
-
-  // Save both IDs
+  // No locations found in any account — save the first account ID at least
+  const firstAccountId = accountsData.accounts[0].name.replace('accounts/', '');
+  log.warn({ clientId, firstAccountId }, 'No locations found in any account');
   await db
     .update(clients)
-    .set({ gbpAccountId: accountId, gbpLocationId: locationId })
+    .set({ gbpAccountId: firstAccountId })
     .where(eq(clients.id, clientId));
 }
 
