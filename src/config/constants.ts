@@ -18,3 +18,5 @@ export const REVIEW_POLL_INTERVAL_MINUTES = 15;
 export const DIGEST_DAY = 1; // Monday
 export const DIGEST_HOUR = 8; // 8 AM
 export const DIGEST_TIMEZONE = 'Europe/Dublin';
+
+export const OFFER_DEFAULT_DURATION_DAYS = 30;

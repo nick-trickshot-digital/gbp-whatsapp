@@ -10,15 +10,21 @@ import {
   handleCustomReply,
 } from '../workflows/review-response.js';
 import {
-  startGbpPost,
   handlePostApproval,
   handlePostEdit,
 } from '../workflows/gbp-post.js';
-import { WhatsAppService } from '../services/whatsapp/client.js';
+import {
+  handleOfferApproval,
+  handleOfferEdit,
+} from '../workflows/offer-post.js';
+import {
+  sendMainMenu,
+  handleMenuSelection,
+  handlePendingMenuAction,
+} from '../workflows/menu.js';
 import type { WhatsAppWebhookPayload, ParsedMessage } from '../services/whatsapp/types.js';
 
 const log = createChildLogger('webhook');
-const whatsapp = new WhatsAppService();
 
 export async function webhookRoutes(app: FastifyInstance) {
   // Register a custom content type parser to capture raw body for signature verification
@@ -89,8 +95,9 @@ export async function webhookRoutes(app: FastifyInstance) {
  * based on message type and conversation state.
  *
  * Priority order:
- * 1. Check for "awaiting custom reply" state (review edit flow)
- * 2. Route by message type (image → photo pipeline, button → review, text → help)
+ * 1. Check for "awaiting edit" states (post edit, offer edit, review custom reply)
+ * 2. Check for pending menu actions (user tapped menu, we're waiting for their input)
+ * 3. Route by message type (image → photo pipeline, button → approval, list → menu, text → show menu)
  */
 async function handleInboundMessage(message: ParsedMessage): Promise<void> {
   // 1. Identify client by phone number
@@ -114,9 +121,17 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
     const postConsumed = await handlePostEdit(client, message.text);
     if (postConsumed) return;
 
-    // Then check for review custom reply
+    // Offer edit
+    const offerConsumed = await handleOfferEdit(client, message.text);
+    if (offerConsumed) return;
+
+    // Review custom reply
     const reviewConsumed = await handleCustomReply(client, message.text);
     if (reviewConsumed) return;
+
+    // Pending menu action (user selected from menu, we asked for input)
+    const menuConsumed = await handlePendingMenuAction(client, message.text, message.from);
+    if (menuConsumed) return;
   }
 
   // 3. Route by message type
@@ -133,23 +148,20 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
     case 'button_reply':
       if (message.buttonId.startsWith('post_')) {
         await handlePostApproval(client, message.buttonId);
+      } else if (message.buttonId.startsWith('offer_')) {
+        await handleOfferApproval(client, message.buttonId);
       } else {
         await handleApprovalResponse(client, message.buttonId);
       }
       break;
 
-    case 'text': {
-      // Check for "post" command
-      const postMatch = message.text.match(/^post\s+(.+)/is);
-      if (postMatch) {
-        await startGbpPost(client, postMatch[1].trim(), message.from);
-      } else {
-        await whatsapp.sendTextMessage(
-          message.from,
-          'Send a photo with a caption to post it to your Google profile and website!\n\nOr start a message with "post" to publish a text update to your Google profile.',
-        );
-      }
+    case 'list_reply':
+      await handleMenuSelection(client, message.listId, message.from);
       break;
-    }
+
+    case 'text':
+      // Any unhandled text → show the main menu
+      await sendMainMenu(client, message.from);
+      break;
   }
 }

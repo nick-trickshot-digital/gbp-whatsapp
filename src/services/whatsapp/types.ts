@@ -50,6 +50,11 @@ export interface WebhookMessage {
       id: string;
       title: string;
     };
+    list_reply?: {
+      id: string;
+      title: string;
+      description?: string;
+    };
   };
 }
 
@@ -73,6 +78,13 @@ export type ParsedMessage =
       buttonId: string;
       buttonTitle: string;
       messageId: string;
+    }
+  | {
+      type: 'list_reply';
+      from: string;
+      listId: string;
+      listTitle: string;
+      messageId: string;
     };
 
 export interface Button {
@@ -84,6 +96,17 @@ export interface SendMessageResponse {
   messaging_product: string;
   contacts: Array<{ input: string; wa_id: string }>;
   messages: Array<{ id: string }>;
+}
+
+export interface ListRow {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface ListSection {
+  title: string;
+  rows: ListRow[];
 }
 
 export interface MediaUrlResponse {

@@ -45,6 +45,32 @@ Rules:
 - Be creative — turn a vague brief into something specific and compelling
 - Return ONLY the post text, nothing else`;
 
+export const OFFER_POST_SYSTEM_PROMPT = `You are a social media copywriter for local trade businesses in the UK and Ireland.
+You create compelling Google Business Profile offer posts from rough descriptions.
+
+Rules:
+- Keep it under 1500 characters (GBP local post limit)
+- Write in first person as the business owner
+- Sound professional but not corporate — these are real tradespeople, not brands
+- Make the offer clear and compelling — lead with the value proposition
+- Include the location/area naturally when relevant
+- Do not add hashtags
+- Do not use emojis excessively — one or two maximum
+- End with a strong but natural call-to-action (e.g., "Call us today to book" or "Get in touch before slots fill up")
+- Create urgency without being pushy
+- Return ONLY the offer post text, nothing else`;
+
+export function buildOfferPostUserPrompt(
+  prompt: string,
+  tradeType: string,
+  businessName: string,
+  county: string,
+): string {
+  return `Create a Google Business Profile offer post for ${businessName} (${tradeType} in ${county}).
+
+The offer: "${prompt}"`;
+}
+
 export function buildGbpPostUserPrompt(
   prompt: string,
   tradeType: string,

@@ -12,6 +12,7 @@ export const clients = sqliteTable('clients', {
   gbpRefreshToken: text('gbp_refresh_token'),
   gbpAccessToken: text('gbp_access_token'),
   gbpTokenExpiresAt: integer('gbp_token_expires_at'),
+  googlePlaceId: text('google_place_id'),
   status: text('status', { enum: ['active', 'paused', 'onboarding'] })
     .notNull()
     .default('active'),
@@ -26,7 +27,7 @@ export const activityLog = sqliteTable('activity_log', {
     .notNull()
     .references(() => clients.id),
   type: text('type', {
-    enum: ['photo_posted', 'review_alert', 'review_responded', 'digest_sent', 'gbp_post'],
+    enum: ['photo_posted', 'review_alert', 'review_responded', 'digest_sent', 'gbp_post', 'offer_posted'],
   }).notNull(),
   payload: text('payload', { mode: 'json' }),
   status: text('status', { enum: ['success', 'failed', 'pending'] }).notNull(),
@@ -72,12 +73,48 @@ export const pendingPosts = sqliteTable('pending_posts', {
     .references(() => clients.id),
   prompt: text('prompt').notNull(),
   suggestedText: text('suggested_text').notNull(),
+  postType: text('post_type', { enum: ['standard', 'offer'] })
+    .notNull()
+    .default('standard'),
+  offerEndDate: integer('offer_end_date', { mode: 'timestamp' }),
+  ctaType: text('cta_type'),
   status: text('status', {
     enum: ['pending', 'awaiting_edit', 'approved', 'edited', 'skipped'],
   })
     .notNull()
     .default('pending'),
   customText: text('custom_text'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const nudges = sqliteTable('nudges', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  clientId: integer('client_id')
+    .notNull()
+    .references(() => clients.id),
+  type: text('type', {
+    enum: ['review_link', 'post_activity', 'holiday_hours', 'profile_audit'],
+  }).notNull(),
+  sentAt: integer('sent_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  responded: integer('responded', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+});
+
+export const metricsHistory = sqliteTable('metrics_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  clientId: integer('client_id')
+    .notNull()
+    .references(() => clients.id),
+  impressions: integer('impressions').notNull().default(0),
+  websiteClicks: integer('website_clicks').notNull().default(0),
+  callClicks: integer('call_clicks').notNull().default(0),
+  directionRequests: integer('direction_requests').notNull().default(0),
+  weekStart: integer('week_start', { mode: 'timestamp' }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),

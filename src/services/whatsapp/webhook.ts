@@ -63,15 +63,25 @@ export function parseWebhookPayload(
       };
 
     case 'interactive':
-      if (message.interactive?.type !== 'button_reply') return null;
-      if (!message.interactive.button_reply) return null;
-      return {
-        type: 'button_reply',
-        from: message.from,
-        buttonId: message.interactive.button_reply.id,
-        buttonTitle: message.interactive.button_reply.title,
-        messageId: message.id,
-      };
+      if (message.interactive?.type === 'button_reply' && message.interactive.button_reply) {
+        return {
+          type: 'button_reply',
+          from: message.from,
+          buttonId: message.interactive.button_reply.id,
+          buttonTitle: message.interactive.button_reply.title,
+          messageId: message.id,
+        };
+      }
+      if (message.interactive?.type === 'list_reply' && message.interactive.list_reply) {
+        return {
+          type: 'list_reply',
+          from: message.from,
+          listId: message.interactive.list_reply.id,
+          listTitle: message.interactive.list_reply.title,
+          messageId: message.id,
+        };
+      }
+      return null;
 
     default:
       return null;

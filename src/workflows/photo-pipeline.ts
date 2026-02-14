@@ -7,6 +7,7 @@ import { db } from '../db/client.js';
 import { activityLog } from '../db/schema.js';
 import { IMAGE_MAX_WIDTH, IMAGE_QUALITY } from '../config/constants.js';
 import { createChildLogger } from '../lib/logger.js';
+import { sendConfirmationWithMenu } from './menu.js';
 import type { clients } from '../db/schema.js';
 import type { InferSelectModel } from 'drizzle-orm';
 
@@ -115,11 +116,12 @@ export async function executePhotoPipeline(
         : null,
     });
 
-    // 6. Send confirmation to tradesperson
+    // 6. Send confirmation to tradesperson with menu
     if (gbpOk && githubOk) {
-      await whatsapp.sendTextMessage(
+      await sendConfirmationWithMenu(
+        client,
         message.from,
-        `Posted! Your photo is now on your Google Business Profile and website.`,
+        'Posted! Your photo is now on your Google Business Profile and website.',
       );
     } else {
       const parts: string[] = ['Photo received.'];
@@ -127,7 +129,7 @@ export async function executePhotoPipeline(
       else parts.push('Google posting failed - we\'ll retry shortly.');
       if (githubOk) parts.push('Website updated.');
       else parts.push('Website update pending.');
-      await whatsapp.sendTextMessage(message.from, parts.join(' '));
+      await sendConfirmationWithMenu(client, message.from, parts.join(' '));
     }
 
     if (!gbpOk) log.error({ err: gbpResult.reason }, 'GBP post failed');
@@ -148,12 +150,11 @@ export async function executePhotoPipeline(
       errorMessage: String(err),
     });
 
-    await whatsapp
-      .sendTextMessage(
-        message.from,
-        'Sorry, something went wrong processing your photo. We\'ll look into it.',
-      )
-      .catch((sendErr) => log.error({ err: sendErr }, 'Failed to send error message'));
+    await sendConfirmationWithMenu(
+      client,
+      message.from,
+      'Sorry, something went wrong processing your photo. We\'ll look into it.',
+    ).catch((sendErr) => log.error({ err: sendErr }, 'Failed to send error message'));
   }
 }
 

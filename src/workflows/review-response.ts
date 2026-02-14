@@ -8,6 +8,7 @@ import { db } from '../db/client.js';
 import { clients, pendingReviews, activityLog } from '../db/schema.js';
 import { REVIEW_EXPIRY_HOURS } from '../config/constants.js';
 import { createChildLogger } from '../lib/logger.js';
+import { sendConfirmationWithMenu } from './menu.js';
 import type { InferSelectModel } from 'drizzle-orm';
 
 const log = createChildLogger('review-response');
@@ -189,7 +190,8 @@ export async function handleApprovalResponse(
         status: 'success',
       });
 
-      await whatsapp.sendTextMessage(
+      await sendConfirmationWithMenu(
+        client,
         client.whatsappNumber,
         'Reply posted to Google!',
       );
@@ -219,7 +221,7 @@ export async function handleApprovalResponse(
         .set({ status: 'rejected' })
         .where(eq(pendingReviews.id, pending.id));
 
-      await whatsapp.sendTextMessage(client.whatsappNumber, 'Skipped.');
+      await sendConfirmationWithMenu(client, client.whatsappNumber, 'Skipped.');
 
       log.info({ clientId: client.id, reviewId }, 'Review skipped');
       break;
@@ -274,7 +276,8 @@ export async function handleCustomReply(
     status: 'success',
   });
 
-  await whatsapp.sendTextMessage(
+  await sendConfirmationWithMenu(
+    client,
     client.whatsappNumber,
     'Your custom reply has been posted!',
   );

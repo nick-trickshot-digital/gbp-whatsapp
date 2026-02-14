@@ -169,6 +169,77 @@ export async function createTextPost(
   return postName;
 }
 
+/**
+ * Create an offer post on a client's Google Business Profile.
+ * Includes call-to-action button and offer validity dates.
+ */
+export async function createOfferPost(
+  clientId: number,
+  gbpAccountId: string,
+  gbpLocationId: string,
+  caption: string,
+  offerEndDate: Date,
+  ctaType: string = 'CALL',
+): Promise<string> {
+  const auth = await getAuthenticatedClient(clientId);
+  const accessToken = (await auth.getAccessToken()).token;
+
+  if (!accessToken) {
+    throw new Error('Failed to get GBP access token');
+  }
+
+  log.info({ clientId, gbpLocationId }, 'Creating GBP offer post');
+
+  const now = new Date();
+  const formatDate = (d: Date) => ({
+    year: d.getFullYear(),
+    month: d.getMonth() + 1,
+    day: d.getDate(),
+  });
+
+  const postName = await retry(
+    async () => {
+      const response = await fetch(
+        `${GBP_API_V4_BASE}/accounts/${gbpAccountId}/locations/${gbpLocationId}/localPosts`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            languageCode: 'en',
+            summary: caption,
+            topicType: 'OFFER',
+            callToAction: {
+              actionType: ctaType,
+            },
+            event: {
+              title: 'Special Offer',
+              schedule: {
+                startDate: formatDate(now),
+                endDate: formatDate(offerEndDate),
+              },
+            },
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new GbpApiError(response.status, error);
+      }
+
+      const result = (await response.json()) as { name: string };
+      return result.name;
+    },
+    { maxAttempts: 3, baseDelay: 2000 },
+  );
+
+  log.info({ clientId, postName }, 'GBP offer post created');
+  return postName;
+}
+
 export class GbpApiError extends Error {
   constructor(
     public statusCode: number,

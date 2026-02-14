@@ -7,11 +7,13 @@ import {
   CAPTION_SYSTEM_PROMPT,
   REVIEW_RESPONSE_SYSTEM_PROMPT,
   GBP_POST_SYSTEM_PROMPT,
+  OFFER_POST_SYSTEM_PROMPT,
   buildCaptionUserPrompt,
   buildReviewResponseUserPrompt,
   buildGbpPostUserPrompt,
+  buildOfferPostUserPrompt,
 } from './prompts.js';
-import type { CaptionRequest, ReviewResponseRequest, GbpPostRequest } from './types.js';
+import type { CaptionRequest, ReviewResponseRequest, GbpPostRequest, OfferPostRequest } from './types.js';
 
 const log = createChildLogger('claude');
 
@@ -141,5 +143,46 @@ export async function generateGbpPost(params: GbpPostRequest): Promise<string> {
   );
 
   log.info({ businessName: params.businessName }, 'GBP post generated');
+  return text;
+}
+
+/**
+ * Generate a GBP offer post from a brief/prompt.
+ */
+export async function generateOfferPost(params: OfferPostRequest): Promise<string> {
+  log.info(
+    { businessName: params.businessName, prompt: params.prompt },
+    'Generating offer post',
+  );
+
+  const text = await retry(
+    async () => {
+      const response = await anthropic.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: CLAUDE_MAX_TOKENS_CAPTION,
+        system: OFFER_POST_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: 'user',
+            content: buildOfferPostUserPrompt(
+              params.prompt,
+              params.tradeType,
+              params.businessName,
+              params.county,
+            ),
+          },
+        ],
+      });
+
+      const block = response.content[0];
+      if (block.type !== 'text') {
+        throw new Error('Unexpected response type from Claude');
+      }
+      return block.text;
+    },
+    { maxAttempts: 2, baseDelay: 1000 },
+  );
+
+  log.info({ businessName: params.businessName }, 'Offer post generated');
   return text;
 }

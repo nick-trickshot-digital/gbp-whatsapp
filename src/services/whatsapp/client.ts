@@ -2,7 +2,7 @@ import { config } from '../../config/env.js';
 import { WHATSAPP_API_BASE } from '../../config/constants.js';
 import { retry } from '../../lib/retry.js';
 import { createChildLogger } from '../../lib/logger.js';
-import type { Button, SendMessageResponse, MediaUrlResponse } from './types.js';
+import type { Button, ListSection, SendMessageResponse, MediaUrlResponse } from './types.js';
 
 const log = createChildLogger('whatsapp');
 
@@ -39,6 +39,35 @@ export class WhatsAppService {
           buttons: buttons.map((b) => ({
             type: 'reply',
             reply: { id: b.id, title: b.title },
+          })),
+        },
+      },
+    });
+    return response.messages[0].id;
+  }
+
+  async sendListMessage(
+    to: string,
+    bodyText: string,
+    buttonText: string,
+    sections: ListSection[],
+  ): Promise<string> {
+    const response = await this.apiCall<SendMessageResponse>('POST', '/messages', {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: bodyText },
+        action: {
+          button: buttonText,
+          sections: sections.map((s) => ({
+            title: s.title,
+            rows: s.rows.map((r) => ({
+              id: r.id,
+              title: r.title,
+              description: r.description,
+            })),
           })),
         },
       },

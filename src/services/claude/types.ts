@@ -12,6 +12,13 @@ export interface GbpPostRequest {
   county: string;
 }
 
+export interface OfferPostRequest {
+  prompt: string;
+  tradeType: string;
+  businessName: string;
+  county: string;
+}
+
 export interface ReviewResponseRequest {
   reviewText: string;
   starRating: number;
