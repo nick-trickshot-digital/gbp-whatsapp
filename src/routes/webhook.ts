@@ -9,7 +9,11 @@ import {
   handleApprovalResponse,
   handleCustomReply,
 } from '../workflows/review-response.js';
-import { executeGbpPost } from '../workflows/gbp-post.js';
+import {
+  startGbpPost,
+  handlePostApproval,
+  handlePostEdit,
+} from '../workflows/gbp-post.js';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import type { WhatsAppWebhookPayload, ParsedMessage } from '../services/whatsapp/types.js';
 
@@ -104,10 +108,15 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
     return;
   }
 
-  // 2. Check for pending custom reply BEFORE checking message type
+  // 2. Check for pending edit states BEFORE checking message type
   if (message.type === 'text') {
-    const consumed = await handleCustomReply(client, message.text);
-    if (consumed) return;
+    // Post edit takes priority (most recent action)
+    const postConsumed = await handlePostEdit(client, message.text);
+    if (postConsumed) return;
+
+    // Then check for review custom reply
+    const reviewConsumed = await handleCustomReply(client, message.text);
+    if (reviewConsumed) return;
   }
 
   // 3. Route by message type
@@ -122,14 +131,18 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
       break;
 
     case 'button_reply':
-      await handleApprovalResponse(client, message.buttonId);
+      if (message.buttonId.startsWith('post_')) {
+        await handlePostApproval(client, message.buttonId);
+      } else {
+        await handleApprovalResponse(client, message.buttonId);
+      }
       break;
 
     case 'text': {
       // Check for "post" command
       const postMatch = message.text.match(/^post\s+(.+)/is);
       if (postMatch) {
-        await executeGbpPost(client, postMatch[1].trim(), message.from);
+        await startGbpPost(client, postMatch[1].trim(), message.from);
       } else {
         await whatsapp.sendTextMessage(
           message.from,

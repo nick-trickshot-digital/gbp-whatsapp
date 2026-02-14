@@ -5,6 +5,13 @@ export interface CaptionRequest {
   county: string;
 }
 
+export interface GbpPostRequest {
+  prompt: string;
+  tradeType: string;
+  businessName: string;
+  county: string;
+}
+
 export interface ReviewResponseRequest {
   reviewText: string;
   starRating: number;

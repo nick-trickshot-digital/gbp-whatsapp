@@ -64,3 +64,21 @@ export const pendingReviews = sqliteTable('pending_reviews', {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const pendingPosts = sqliteTable('pending_posts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  clientId: integer('client_id')
+    .notNull()
+    .references(() => clients.id),
+  prompt: text('prompt').notNull(),
+  suggestedText: text('suggested_text').notNull(),
+  status: text('status', {
+    enum: ['pending', 'awaiting_edit', 'approved', 'edited', 'skipped'],
+  })
+    .notNull()
+    .default('pending'),
+  customText: text('custom_text'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

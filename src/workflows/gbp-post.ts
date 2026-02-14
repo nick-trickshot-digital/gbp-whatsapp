@@ -1,8 +1,9 @@
+import { eq, and } from 'drizzle-orm';
 import { WhatsAppService } from '../services/whatsapp/client.js';
-import { polishCaption } from '../services/claude/client.js';
+import { generateGbpPost } from '../services/claude/client.js';
 import { createTextPost } from '../services/gbp/posts.js';
 import { db } from '../db/client.js';
-import { activityLog } from '../db/schema.js';
+import { pendingPosts, activityLog } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
 import type { clients } from '../db/schema.js';
 import type { InferSelectModel } from 'drizzle-orm';
@@ -14,69 +15,190 @@ type Client = InferSelectModel<typeof clients>;
 const whatsapp = new WhatsAppService();
 
 /**
- * Post a text-only update to a client's Google Business Profile.
- * Triggered when a tradesperson sends a WhatsApp message starting with "post ".
+ * Generate a GBP post suggestion and send it for approval.
+ * Triggered when a tradesperson sends "post <brief>".
  */
-export async function executeGbpPost(
+export async function startGbpPost(
   client: Client,
-  rawText: string,
+  prompt: string,
   from: string,
 ): Promise<void> {
-  log.info({ clientId: client.id }, 'Starting GBP text post');
+  log.info({ clientId: client.id, prompt }, 'Generating GBP post suggestion');
 
   try {
-    // 1. Polish the text with Claude
-    const polishedText = await polishCaption({
-      rawCaption: rawText,
+    // 1. Generate post with Claude
+    const suggestedText = await generateGbpPost({
+      prompt,
       tradeType: client.tradeType,
       businessName: client.businessName,
       county: client.county,
     });
-    log.info({ clientId: client.id }, 'Post text polished');
 
-    // 2. Create text-only GBP post
-    const postName = await createTextPost(
-      client.id,
-      client.gbpAccountId,
-      client.gbpLocationId,
-      polishedText,
-    );
-
-    // 3. Log activity
-    await db.insert(activityLog).values({
+    // 2. Store as pending
+    const [pending] = await db.insert(pendingPosts).values({
       clientId: client.id,
-      type: 'gbp_post',
-      payload: JSON.stringify({
-        gbpPostName: postName,
-        rawText,
-        polishedText,
-      }),
-      status: 'success',
-    });
+      prompt,
+      suggestedText,
+      status: 'pending',
+    }).returning();
 
-    // 4. Confirm to tradesperson
-    await whatsapp.sendTextMessage(
+    // 3. Send suggestion with approve/edit/skip buttons
+    await whatsapp.sendInteractiveButtons(
       from,
-      `Posted to your Google Business Profile!\n\n"${polishedText}"`,
+      `Here's a draft for your Google profile:\n\n"${suggestedText}"`,
+      [
+        { id: `post_approve_${pending.id}`, title: 'Post It' },
+        { id: `post_edit_${pending.id}`, title: 'Edit' },
+        { id: `post_skip_${pending.id}`, title: 'Skip' },
+      ],
     );
 
-    log.info({ clientId: client.id, postName }, 'GBP text post completed');
+    log.info({ clientId: client.id, pendingId: pending.id }, 'GBP post suggestion sent');
   } catch (err) {
-    log.error({ err, clientId: client.id }, 'GBP text post failed');
-
-    await db.insert(activityLog).values({
-      clientId: client.id,
-      type: 'gbp_post',
-      payload: JSON.stringify({ error: String(err), rawText }),
-      status: 'failed',
-      errorMessage: String(err),
-    });
+    log.error({ err, clientId: client.id }, 'Failed to generate GBP post suggestion');
 
     await whatsapp
-      .sendTextMessage(
-        from,
-        'Sorry, something went wrong posting to your Google profile. We\'ll look into it.',
-      )
+      .sendTextMessage(from, 'Sorry, something went wrong generating your post. Try again.')
       .catch((sendErr) => log.error({ err: sendErr }, 'Failed to send error message'));
   }
+}
+
+/**
+ * Handle a button reply for a pending GBP post (approve/edit/skip).
+ */
+export async function handlePostApproval(
+  client: Client,
+  buttonId: string,
+): Promise<void> {
+  // Parse: "post_approve_123" → action="approve", id=123
+  const parts = buttonId.substring(5).split('_'); // skip "post_"
+  const action = parts[0];
+  const pendingId = parseInt(parts.slice(1).join('_'), 10);
+
+  const pending = await db
+    .select()
+    .from(pendingPosts)
+    .where(eq(pendingPosts.id, pendingId))
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (!pending) {
+    log.warn({ pendingId }, 'No pending post found');
+    await whatsapp.sendTextMessage(client.whatsappNumber, 'This post is no longer pending.');
+    return;
+  }
+
+  if (pending.status !== 'pending') {
+    log.info({ pendingId, status: pending.status }, 'Post already handled');
+    return;
+  }
+
+  switch (action) {
+    case 'approve': {
+      const postName = await createTextPost(
+        client.id,
+        client.gbpAccountId,
+        client.gbpLocationId,
+        pending.suggestedText,
+      );
+
+      await db
+        .update(pendingPosts)
+        .set({ status: 'approved' })
+        .where(eq(pendingPosts.id, pending.id));
+
+      await db.insert(activityLog).values({
+        clientId: client.id,
+        type: 'gbp_post',
+        payload: JSON.stringify({
+          gbpPostName: postName,
+          text: pending.suggestedText,
+          action: 'approved',
+        }),
+        status: 'success',
+      });
+
+      await whatsapp.sendTextMessage(client.whatsappNumber, 'Posted to your Google profile!');
+      log.info({ clientId: client.id, postName }, 'GBP post approved and published');
+      break;
+    }
+
+    case 'edit': {
+      await db
+        .update(pendingPosts)
+        .set({ status: 'awaiting_edit' })
+        .where(eq(pendingPosts.id, pending.id));
+
+      await whatsapp.sendTextMessage(
+        client.whatsappNumber,
+        'Type the post you\'d like to publish:',
+      );
+      log.info({ clientId: client.id, pendingId }, 'Awaiting edited post text');
+      break;
+    }
+
+    case 'skip': {
+      await db
+        .update(pendingPosts)
+        .set({ status: 'skipped' })
+        .where(eq(pendingPosts.id, pending.id));
+
+      await whatsapp.sendTextMessage(client.whatsappNumber, 'Skipped.');
+      log.info({ clientId: client.id, pendingId }, 'GBP post skipped');
+      break;
+    }
+
+    default:
+      log.warn({ action }, 'Unknown post button action');
+  }
+}
+
+/**
+ * Handle edited post text from a tradesperson who tapped "Edit".
+ * Returns true if the message was consumed, false otherwise.
+ */
+export async function handlePostEdit(
+  client: Client,
+  text: string,
+): Promise<boolean> {
+  const pending = await db
+    .select()
+    .from(pendingPosts)
+    .where(
+      and(
+        eq(pendingPosts.clientId, client.id),
+        eq(pendingPosts.status, 'awaiting_edit'),
+      ),
+    )
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (!pending) return false;
+
+  const postName = await createTextPost(
+    client.id,
+    client.gbpAccountId,
+    client.gbpLocationId,
+    text,
+  );
+
+  await db
+    .update(pendingPosts)
+    .set({ status: 'edited', customText: text })
+    .where(eq(pendingPosts.id, pending.id));
+
+  await db.insert(activityLog).values({
+    clientId: client.id,
+    type: 'gbp_post',
+    payload: JSON.stringify({
+      gbpPostName: postName,
+      text,
+      action: 'edited',
+    }),
+    status: 'success',
+  });
+
+  await whatsapp.sendTextMessage(client.whatsappNumber, 'Your post has been published!');
+  log.info({ clientId: client.id, postName }, 'Edited GBP post published');
+  return true;
 }
