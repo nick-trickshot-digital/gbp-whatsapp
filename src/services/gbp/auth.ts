@@ -210,12 +210,64 @@ export async function discoverAccountAndLocation(clientId: number): Promise<void
     return;
   }
 
-  // No locations found in any account — save the first account ID at least
-  const firstAccountId = accountsData.accounts[0].name.replace('accounts/', '');
-  log.warn({ clientId, firstAccountId }, 'No locations found in any account');
+  // Fallback: Try the v4 My Business API (used by reviews) to list locations per account
+  log.info({ clientId }, 'Trying v4 API fallback for location discovery');
+  for (const account of accountsData.accounts) {
+    const accountId = account.name.replace('accounts/', '');
+
+    const v4Res = await fetch(
+      `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    if (!v4Res.ok) {
+      const err = await v4Res.json().catch(() => ({}));
+      log.warn({ clientId, accountId, err }, 'v4 API locations failed, skipping');
+      continue;
+    }
+
+    const v4Data = (await v4Res.json()) as {
+      locations?: Array<{ name: string; locationName: string }>;
+    };
+
+    if (!v4Data.locations?.length) {
+      log.info({ clientId, accountId }, 'No locations via v4 API');
+      continue;
+    }
+
+    log.info(
+      { clientId, accountId, locations: v4Data.locations.map((l) => ({ name: l.name, locationName: l.locationName })) },
+      'Found locations via v4 API',
+    );
+
+    const match = v4Data.locations.find(
+      (l) => l.locationName?.toLowerCase().includes(businessNameLower) || businessNameLower.includes(l.locationName?.toLowerCase() ?? ''),
+    );
+
+    const location = match || v4Data.locations[0];
+    // v4 location name format: accounts/{accountId}/locations/{locationId}
+    const locationId = location.name.split('/').pop() || '';
+
+    if (match) {
+      log.info({ clientId, accountId, locationId, title: location.locationName }, 'Matched GBP location via v4 API');
+    } else {
+      log.info({ clientId, accountId, locationId, title: location.locationName }, 'Using first v4 location (no name match)');
+    }
+
+    await db
+      .update(clients)
+      .set({ gbpAccountId: accountId, gbpLocationId: locationId })
+      .where(eq(clients.id, clientId));
+    return;
+  }
+
+  // Still nothing — save the best account ID we have
+  const orgAccount = accountsData.accounts.find((a) => a.type === 'ORGANIZATION');
+  const bestAccountId = (orgAccount || accountsData.accounts[0]).name.replace('accounts/', '');
+  log.warn({ clientId, bestAccountId }, 'No locations found in any account via any API');
   await db
     .update(clients)
-    .set({ gbpAccountId: firstAccountId })
+    .set({ gbpAccountId: bestAccountId })
     .where(eq(clients.id, clientId));
 }
 
