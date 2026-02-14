@@ -118,6 +118,57 @@ async function uploadMedia(
   );
 }
 
+/**
+ * Create a text-only post (Local Post) on a client's Google Business Profile.
+ */
+export async function createTextPost(
+  clientId: number,
+  gbpAccountId: string,
+  gbpLocationId: string,
+  caption: string,
+): Promise<string> {
+  const auth = await getAuthenticatedClient(clientId);
+  const accessToken = (await auth.getAccessToken()).token;
+
+  if (!accessToken) {
+    throw new Error('Failed to get GBP access token');
+  }
+
+  log.info({ clientId, gbpLocationId }, 'Creating GBP text post');
+
+  const postName = await retry(
+    async () => {
+      const response = await fetch(
+        `${GBP_API_V4_BASE}/accounts/${gbpAccountId}/locations/${gbpLocationId}/localPosts`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            languageCode: 'en',
+            summary: caption,
+            topicType: 'STANDARD',
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new GbpApiError(response.status, error);
+      }
+
+      const result = (await response.json()) as { name: string };
+      return result.name;
+    },
+    { maxAttempts: 3, baseDelay: 2000 },
+  );
+
+  log.info({ clientId, postName }, 'GBP text post created');
+  return postName;
+}
+
 export class GbpApiError extends Error {
   constructor(
     public statusCode: number,

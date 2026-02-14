@@ -26,7 +26,7 @@ export const activityLog = sqliteTable('activity_log', {
     .notNull()
     .references(() => clients.id),
   type: text('type', {
-    enum: ['photo_posted', 'review_alert', 'review_responded', 'digest_sent'],
+    enum: ['photo_posted', 'review_alert', 'review_responded', 'digest_sent', 'gbp_post'],
   }).notNull(),
   payload: text('payload', { mode: 'json' }),
   status: text('status', { enum: ['success', 'failed', 'pending'] }).notNull(),

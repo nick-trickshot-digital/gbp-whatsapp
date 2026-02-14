@@ -9,6 +9,7 @@ import {
   handleApprovalResponse,
   handleCustomReply,
 } from '../workflows/review-response.js';
+import { executeGbpPost } from '../workflows/gbp-post.js';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import type { WhatsAppWebhookPayload, ParsedMessage } from '../services/whatsapp/types.js';
 
@@ -124,12 +125,18 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
       await handleApprovalResponse(client, message.buttonId);
       break;
 
-    case 'text':
-      // No pending custom reply and not a photo — send help message
-      await whatsapp.sendTextMessage(
-        message.from,
-        'Send a photo with a caption to post it to your Google profile and website!',
-      );
+    case 'text': {
+      // Check for "post" command
+      const postMatch = message.text.match(/^post\s+(.+)/is);
+      if (postMatch) {
+        await executeGbpPost(client, postMatch[1].trim(), message.from);
+      } else {
+        await whatsapp.sendTextMessage(
+          message.from,
+          'Send a photo with a caption to post it to your Google profile and website!\n\nOr start a message with "post" to publish a text update to your Google profile.',
+        );
+      }
       break;
+    }
   }
 }
