@@ -89,7 +89,8 @@ export async function sendConfirmationWithMenu(
   from: string,
   confirmationText: string,
 ): Promise<void> {
-  const bodyText = `${confirmationText}\n\nI'm always here — what would you like to do next?`;
+  const menuSuffix = "\n\nI'm always here — what would you like to do next?";
+  const combinedBody = `${confirmationText}${menuSuffix}`;
 
   const sections: ListSection[] = [
     {
@@ -108,7 +109,13 @@ export async function sendConfirmationWithMenu(
     },
   ];
 
-  await whatsapp.sendListMessage(from, bodyText, 'Open Menu', sections);
+  // WhatsApp list body max is 1024 chars — split if needed
+  if (combinedBody.length <= 1024) {
+    await whatsapp.sendListMessage(from, combinedBody, 'Open Menu', sections);
+  } else {
+    await whatsapp.sendTextMessage(from, confirmationText);
+    await whatsapp.sendListMessage(from, "What would you like to do next?", 'Open Menu', sections);
+  }
 }
 
 /**

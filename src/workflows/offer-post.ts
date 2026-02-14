@@ -54,9 +54,15 @@ export async function startOfferPost(
       year: 'numeric',
     });
 
+    // WhatsApp interactive body max is 1024 chars — truncate preview if needed
+    const maxPreviewLen = 900;
+    const previewText = suggestedText.length > maxPreviewLen
+      ? suggestedText.slice(0, maxPreviewLen) + '...'
+      : suggestedText;
+
     await whatsapp.sendInteractiveButtons(
       from,
-      `Here's your offer post:\n\n"${suggestedText}"\n\nOffer valid until: ${endDateStr}\nCall-to-action: Call Now`,
+      `Here's your offer post:\n\n"${previewText}"\n\nOffer valid until: ${endDateStr}\nCall-to-action: Call Now`,
       [
         { id: `offer_approve_${pending.id}`, title: 'Post It' },
         { id: `offer_edit_${pending.id}`, title: 'Edit' },

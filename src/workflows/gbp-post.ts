@@ -41,9 +41,15 @@ export async function startGbpPost(
       status: 'pending',
     }).returning();
 
+    // WhatsApp interactive body max is 1024 chars — truncate preview if needed
+    const maxPreviewLen = 950;
+    const previewText = suggestedText.length > maxPreviewLen
+      ? suggestedText.slice(0, maxPreviewLen) + '...'
+      : suggestedText;
+
     await whatsapp.sendInteractiveButtons(
       from,
-      `Here's a draft for your Google profile:\n\n"${suggestedText}"`,
+      `Here's a draft for your Google profile:\n\n"${previewText}"`,
       [
         { id: `post_approve_${pending.id}`, title: 'Post It' },
         { id: `post_edit_${pending.id}`, title: 'Edit' },
