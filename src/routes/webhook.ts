@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { eq, and, desc } from 'drizzle-orm';
 import { config } from '../config/env.js';
 import { parseWebhookPayload } from '../services/whatsapp/webhook.js';
 import { validateSignature } from '../middleware/signature-validation.js';
 import { lookupClientByPhone } from '../lib/phone.js';
 import { createChildLogger } from '../lib/logger.js';
+import { db } from '../db/client.js';
+import { clients, pendingPosts, pendingReviews } from '../db/schema.js';
 import { executePhotoPipeline } from '../workflows/photo-pipeline.js';
 import {
   handleApprovalResponse,
@@ -23,6 +26,7 @@ import {
   handlePendingMenuAction,
 } from '../workflows/menu.js';
 import type { WhatsAppWebhookPayload, ParsedMessage } from '../services/whatsapp/types.js';
+import type { InferSelectModel } from 'drizzle-orm';
 
 const log = createChildLogger('webhook');
 
@@ -99,14 +103,92 @@ export async function webhookRoutes(app: FastifyInstance) {
 }
 
 /**
+ * Handle text-based approvals as fallback for button webhook failures.
+ * Checks for pending posts/offers/reviews and matches "yes", "approve", "post it", etc.
+ */
+async function handleTextApproval(
+  client: InferSelectModel<typeof clients>,
+  text: string,
+): Promise<boolean> {
+  const normalizedText = text.toLowerCase().trim();
+
+  // Match approval keywords
+  if (!['yes', 'approve', 'post it', 'post', 'ok', 'send it', 'send'].includes(normalizedText)) {
+    return false;
+  }
+
+  // Check for pending standard post
+  const pendingPost = await db
+    .select()
+    .from(pendingPosts)
+    .where(
+      and(
+        eq(pendingPosts.clientId, client.id),
+        eq(pendingPosts.status, 'pending'),
+        eq(pendingPosts.postType, 'standard'),
+      ),
+    )
+    .orderBy(desc(pendingPosts.createdAt))
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (pendingPost) {
+    await handlePostApproval(client, `post_approve_${pendingPost.id}`);
+    return true;
+  }
+
+  // Check for pending offer post
+  const pendingOffer = await db
+    .select()
+    .from(pendingPosts)
+    .where(
+      and(
+        eq(pendingPosts.clientId, client.id),
+        eq(pendingPosts.status, 'pending'),
+        eq(pendingPosts.postType, 'offer'),
+      ),
+    )
+    .orderBy(desc(pendingPosts.createdAt))
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (pendingOffer) {
+    await handleOfferApproval(client, `offer_approve_${pendingOffer.id}`);
+    return true;
+  }
+
+  // Check for pending review response
+  const pendingReview = await db
+    .select()
+    .from(pendingReviews)
+    .where(
+      and(
+        eq(pendingReviews.clientId, client.id),
+        eq(pendingReviews.status, 'pending'),
+      ),
+    )
+    .orderBy(desc(pendingReviews.createdAt))
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (pendingReview) {
+    await handleApprovalResponse(client, `approve_${pendingReview.id}`);
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Central message router.
  * Routes inbound WhatsApp messages to the correct workflow
  * based on message type and conversation state.
  *
  * Priority order:
  * 1. Check for "awaiting edit" states (post edit, offer edit, review custom reply)
- * 2. Check for pending menu actions (user tapped menu, we're waiting for their input)
- * 3. Route by message type (image → photo pipeline, button → approval, list → menu, text → show menu)
+ * 2. Check for text-based approvals (fallback for button webhook failures)
+ * 3. Check for pending menu actions (user tapped menu, we're waiting for their input)
+ * 4. Route by message type (image → photo pipeline, button → approval, list → menu, text → show menu)
  */
 async function handleInboundMessage(message: ParsedMessage): Promise<void> {
   // 1. Identify client by phone number
@@ -137,6 +219,10 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
     // Review custom reply
     const reviewConsumed = await handleCustomReply(client, message.text);
     if (reviewConsumed) return;
+
+    // Text-based approval fallback for button webhook failures
+    const approvalConsumed = await handleTextApproval(client, message.text);
+    if (approvalConsumed) return;
 
     // Pending menu action (user selected from menu, we asked for input)
     const menuConsumed = await handlePendingMenuAction(client, message.text, message.from);
