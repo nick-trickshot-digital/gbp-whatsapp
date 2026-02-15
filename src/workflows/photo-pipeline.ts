@@ -66,7 +66,7 @@ export async function executePhotoPipeline(
     });
     log.info({ clientId: client.id }, 'Caption polished');
 
-    // 4. Post to GBP and commit to GitHub in parallel
+    // 4. Upload to GitHub first to get public URL, then post to GBP
     const imageName = generateImageName(client, rawCaption);
     const markdownContent = generateAstroContent(
       client,
@@ -74,14 +74,8 @@ export async function executePhotoPipeline(
       imageName,
     );
 
-    const [gbpResult, githubResult] = await Promise.allSettled([
-      createPhotoPost(
-        client.id,
-        client.gbpAccountId,
-        client.gbpLocationId,
-        optimizedImage,
-        polishedCaption,
-      ),
+    // Upload to GitHub first
+    const githubResult = await Promise.allSettled([
       commitProjectPhoto({
         repo: client.websiteRepo,
         imageBuffer: optimizedImage,
@@ -89,7 +83,22 @@ export async function executePhotoPipeline(
         markdownContent,
         commitMessage: `feat: add project photo - ${rawCaption.slice(0, 50)}`,
       }),
-    ]);
+    ]).then((r) => r[0]);
+
+    // Construct public GitHub URL for the image
+    const [owner, repo] = client.websiteRepo.split('/');
+    const imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/src/content/projects/${imageName}`;
+
+    // Post to GBP with the GitHub URL
+    const gbpResult = await Promise.allSettled([
+      createPhotoPost(
+        client.id,
+        client.gbpAccountId,
+        client.gbpLocationId,
+        imageUrl,
+        polishedCaption,
+      ),
+    ]).then((r) => r[0]);
 
     // 5. Log activity
     const gbpOk = gbpResult.status === 'fulfilled';

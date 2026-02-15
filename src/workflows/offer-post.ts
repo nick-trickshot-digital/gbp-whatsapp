@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import { generateOfferPost } from '../services/claude/client.js';
 import { createOfferPost, createPhotoPost } from '../services/gbp/posts.js';
+import { commitProjectPhoto } from '../services/github/client.js';
 import { db } from '../db/client.js';
 import { pendingPosts, activityLog } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
@@ -319,6 +320,42 @@ export async function handleOfferPhoto(
       .jpeg({ quality: IMAGE_QUALITY })
       .toBuffer();
 
+    // Generate image name for GitHub
+    const caption = pending.customText || pending.suggestedText;
+    const date = new Date().toISOString().split('T')[0];
+    const slug = caption
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40);
+    const imageName = `${slug}-${date}.jpg`;
+
+    // Generate markdown content
+    const markdownContent = `---
+title: "${caption.split('.')[0].replace(/"/g, '\\"')}"
+date: ${date}
+image: ./${imageName}
+trade: ${client.tradeType}
+business: "${client.businessName}"
+county: "${client.county}"
+---
+
+${caption}
+`;
+
+    // Upload to GitHub first
+    await commitProjectPhoto({
+      repo: client.websiteRepo,
+      imageBuffer: optimizedImage,
+      imageName,
+      markdownContent,
+      commitMessage: `feat: add offer photo - ${caption.slice(0, 50)}`,
+    });
+
+    // Construct public GitHub URL
+    const [owner, repo] = client.websiteRepo.split('/');
+    const imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/src/content/projects/${imageName}`;
+
     // Post with photo using photo post method
     // Note: Offer metadata (CTA, end date) is not supported with photos yet
     // due to GBP API limitations - posting as standard photo post
@@ -326,8 +363,8 @@ export async function handleOfferPhoto(
       client.id,
       client.gbpAccountId,
       client.gbpLocationId,
-      optimizedImage,
-      pending.customText || pending.suggestedText,
+      imageUrl,
+      caption,
     );
 
     await db
@@ -340,7 +377,7 @@ export async function handleOfferPhoto(
       type: 'offer_posted',
       payload: JSON.stringify({
         gbpPostName: postName,
-        text: pending.customText || pending.suggestedText,
+        text: caption,
         action: 'approved_with_photo',
       }),
       status: 'success',

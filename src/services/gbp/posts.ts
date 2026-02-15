@@ -8,15 +8,14 @@ const log = createChildLogger('gbp-posts');
 /**
  * Create a photo post (Local Post) on a client's Google Business Profile.
  *
- * The GBP v4 Local Posts API requires:
- * 1. Upload the photo as media first
- * 2. Create the local post referencing the media
+ * The GBP v4 Local Posts API requires an HTTPS sourceUrl.
+ * The image should already be uploaded to GitHub or another public host.
  */
 export async function createPhotoPost(
   clientId: number,
   gbpAccountId: string,
   gbpLocationId: string,
-  imageBuffer: Buffer,
+  imageUrl: string,
   caption: string,
 ): Promise<string> {
   const auth = await getAuthenticatedClient(clientId);
@@ -26,18 +25,7 @@ export async function createPhotoPost(
     throw new Error('Failed to get GBP access token');
   }
 
-  // Step 1: Upload photo as media
-  log.info({ clientId, gbpLocationId }, 'Uploading photo to GBP');
-
-  const mediaUrl = await uploadMedia(
-    accessToken,
-    gbpAccountId,
-    gbpLocationId,
-    imageBuffer,
-  );
-
-  // Step 2: Create local post with the uploaded media
-  log.info({ clientId, gbpLocationId }, 'Creating GBP local post');
+  log.info({ clientId, gbpLocationId, imageUrl }, 'Creating GBP photo post');
 
   const postName = await retry(
     async () => {
@@ -55,7 +43,7 @@ export async function createPhotoPost(
             media: [
               {
                 mediaFormat: 'PHOTO',
-                sourceUrl: mediaUrl,
+                sourceUrl: imageUrl,
               },
             ],
             topicType: 'STANDARD',
@@ -74,49 +62,10 @@ export async function createPhotoPost(
     { maxAttempts: 3, baseDelay: 2000 },
   );
 
-  log.info({ clientId, postName }, 'GBP local post created');
+  log.info({ clientId, postName }, 'GBP photo post created');
   return postName;
 }
 
-async function uploadMedia(
-  accessToken: string,
-  gbpAccountId: string,
-  gbpLocationId: string,
-  imageBuffer: Buffer,
-): Promise<string> {
-  return retry(
-    async () => {
-      const response = await fetch(
-        `${GBP_API_V4_BASE}/accounts/${gbpAccountId}/locations/${gbpLocationId}/media`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            mediaFormat: 'PHOTO',
-            locationAssociation: { category: 'ADDITIONAL' },
-            dataRef: {
-              resourceName: `accounts/${gbpAccountId}/locations/${gbpLocationId}/media`,
-            },
-            // Upload as base64 data
-            sourceUrl: `data:image/jpeg;base64,${imageBuffer.toString('base64')}`,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new GbpApiError(response.status, error);
-      }
-
-      const result = (await response.json()) as { googleUrl: string; name: string };
-      return result.googleUrl;
-    },
-    { maxAttempts: 3, baseDelay: 2000 },
-  );
-}
 
 /**
  * Create a text-only post (Local Post) on a client's Google Business Profile.
