@@ -13,6 +13,10 @@ export const clients = sqliteTable('clients', {
   gbpAccessToken: text('gbp_access_token'),
   gbpTokenExpiresAt: integer('gbp_token_expires_at'),
   googlePlaceId: text('google_place_id'),
+  websiteUrl: text('website_url'),
+  websiteSummary: text('website_summary'),
+  serviceAreas: text('service_areas', { mode: 'json' }).$type<string[]>(),
+  services: text('services', { mode: 'json' }).$type<string[]>(),
   status: text('status', { enum: ['active', 'paused', 'onboarding'] })
     .notNull()
     .default('active'),

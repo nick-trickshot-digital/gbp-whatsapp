@@ -37,7 +37,9 @@ Rules:
 - Keep it under 1500 characters (GBP local post limit)
 - Write in first person as the business owner
 - Sound professional but not corporate — these are real tradespeople, not brands
-- Include the location/area naturally when relevant
+- ONLY reference locations that are explicitly provided in the business context — NEVER invent or assume locations
+- ONLY reference services that are explicitly listed in the business context — NEVER invent services they don't offer
+- Use the business summary to understand their tone and specialties
 - Do not add hashtags
 - Do not use emojis excessively — one or two maximum
 - Do not start with "We are pleased to announce" or similar corporate language
@@ -53,7 +55,9 @@ Rules:
 - Write in first person as the business owner
 - Sound professional but not corporate — these are real tradespeople, not brands
 - Make the offer clear and compelling — lead with the value proposition
-- Include the location/area naturally when relevant
+- ONLY reference locations that are explicitly provided in the business context — NEVER invent or assume locations
+- ONLY reference services that are explicitly listed in the business context — NEVER invent services they don't offer
+- Use the business summary to understand their tone and specialties
 - Do not add hashtags
 - Do not use emojis excessively — one or two maximum
 - End with a strong but natural call-to-action (e.g., "Call us today to book" or "Get in touch before slots fill up")
@@ -65,8 +69,29 @@ export function buildOfferPostUserPrompt(
   tradeType: string,
   businessName: string,
   county: string,
+  businessContext?: {
+    summary?: string;
+    serviceAreas?: string[];
+    services?: string[];
+  },
 ): string {
-  return `Create a Google Business Profile offer post for ${businessName} (${tradeType} in ${county}).
+  const contextLines: string[] = [];
+
+  if (businessContext?.summary) {
+    contextLines.push(`Business: ${businessContext.summary}`);
+  }
+
+  if (businessContext?.serviceAreas && businessContext.serviceAreas.length > 0) {
+    contextLines.push(`Service areas: ${businessContext.serviceAreas.join(', ')}`);
+  }
+
+  if (businessContext?.services && businessContext.services.length > 0) {
+    contextLines.push(`Services offered: ${businessContext.services.join(', ')}`);
+  }
+
+  const contextBlock = contextLines.length > 0 ? `\n\n${contextLines.join('\n')}` : '';
+
+  return `Create a Google Business Profile offer post for ${businessName} (${tradeType} in ${county}).${contextBlock}
 
 The offer: "${prompt}"`;
 }
@@ -76,8 +101,29 @@ export function buildGbpPostUserPrompt(
   tradeType: string,
   businessName: string,
   county: string,
+  businessContext?: {
+    summary?: string;
+    serviceAreas?: string[];
+    services?: string[];
+  },
 ): string {
-  return `Create a Google Business Profile post for ${businessName} (${tradeType} in ${county}).
+  const contextLines: string[] = [];
+
+  if (businessContext?.summary) {
+    contextLines.push(`Business: ${businessContext.summary}`);
+  }
+
+  if (businessContext?.serviceAreas && businessContext.serviceAreas.length > 0) {
+    contextLines.push(`Service areas: ${businessContext.serviceAreas.join(', ')}`);
+  }
+
+  if (businessContext?.services && businessContext.services.length > 0) {
+    contextLines.push(`Services offered: ${businessContext.services.join(', ')}`);
+  }
+
+  const contextBlock = contextLines.length > 0 ? `\n\n${contextLines.join('\n')}` : '';
+
+  return `Create a Google Business Profile post for ${businessName} (${tradeType} in ${county}).${contextBlock}
 
 Brief: "${prompt}"`;
 }

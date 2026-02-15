@@ -5,11 +5,18 @@ export interface CaptionRequest {
   county: string;
 }
 
+export interface BusinessContext {
+  summary?: string;
+  serviceAreas?: string[];
+  services?: string[];
+}
+
 export interface GbpPostRequest {
   prompt: string;
   tradeType: string;
   businessName: string;
   county: string;
+  businessContext?: BusinessContext;
 }
 
 export interface OfferPostRequest {
@@ -17,6 +24,7 @@ export interface OfferPostRequest {
   tradeType: string;
   businessName: string;
   county: string;
+  businessContext?: BusinessContext;
 }
 
 export interface ReviewResponseRequest {

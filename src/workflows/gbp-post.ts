@@ -32,6 +32,11 @@ export async function startGbpPost(
       tradeType: client.tradeType,
       businessName: client.businessName,
       county: client.county,
+      businessContext: {
+        summary: client.websiteSummary ?? undefined,
+        serviceAreas: client.serviceAreas ?? undefined,
+        services: client.services ?? undefined,
+      },
     });
 
     const [pending] = await db.insert(pendingPosts).values({

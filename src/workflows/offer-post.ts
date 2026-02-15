@@ -33,6 +33,11 @@ export async function startOfferPost(
       tradeType: client.tradeType,
       businessName: client.businessName,
       county: client.county,
+      businessContext: {
+        summary: client.websiteSummary ?? undefined,
+        serviceAreas: client.serviceAreas ?? undefined,
+        services: client.services ?? undefined,
+      },
     });
 
     const offerEndDate = new Date();

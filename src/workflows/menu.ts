@@ -4,6 +4,7 @@ import { fetchWeeklyMetrics } from '../services/gbp/performance.js';
 import { db } from '../db/client.js';
 import { clients, activityLog, pendingPosts } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
+import { getTradeExamples } from '../lib/trade-examples.js';
 import {
   startGbpPost,
   handlePostEdit,
@@ -140,9 +141,12 @@ export async function handleMenuSelection(
         postType: 'standard',
       });
 
+      const examples = getTradeExamples(client.tradeType, client.serviceAreas ?? undefined);
+      const exampleList = examples.post.slice(0, 2).map((ex) => `'${ex}'`).join(' or ');
+
       await whatsapp.sendTextMessage(
         from,
-        "What would you like to post about? Just describe it in your own words — e.g. 'just finished a kitchen refit in Drumcondra' or 'we're now offering emergency callouts'",
+        `What would you like to post about? Just describe it in your own words — e.g. ${exampleList}`,
       );
       break;
     }
@@ -157,9 +161,12 @@ export async function handleMenuSelection(
         postType: 'offer',
       });
 
+      const examples = getTradeExamples(client.tradeType, client.serviceAreas ?? undefined);
+      const exampleList = examples.offer.slice(0, 2).map((ex) => `'${ex}'`).join(' or ');
+
       await whatsapp.sendTextMessage(
         from,
-        "What's the offer? Just describe it in your own words — e.g. '10% off boiler servicing' or 'free quote on all fencing jobs this month'",
+        `What's the offer? Just describe it in your own words — e.g. ${exampleList}`,
       );
       break;
     }
