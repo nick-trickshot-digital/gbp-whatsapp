@@ -15,10 +15,12 @@ import {
 import {
   handlePostApproval,
   handlePostEdit,
+  handlePostPhoto,
 } from '../workflows/gbp-post.js';
 import {
   handleOfferApproval,
   handleOfferEdit,
+  handleOfferPhoto,
 } from '../workflows/offer-post.js';
 import {
   sendMainMenu,
@@ -252,7 +254,15 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
 
   // 3. Route by message type
   switch (message.type) {
-    case 'image':
+    case 'image': {
+      // Check if this is a photo for a pending post/offer
+      const postPhotoConsumed = await handlePostPhoto(client, message.imageId);
+      if (postPhotoConsumed) break;
+
+      const offerPhotoConsumed = await handleOfferPhoto(client, message.imageId);
+      if (offerPhotoConsumed) break;
+
+      // Otherwise, run the normal photo pipeline
       await executePhotoPipeline(client, {
         from: message.from,
         imageId: message.imageId,
@@ -260,6 +270,7 @@ async function handleInboundMessage(message: ParsedMessage): Promise<void> {
         messageId: message.messageId,
       });
       break;
+    }
 
     case 'button_reply':
       if (message.buttonId.startsWith('post_')) {

@@ -1,0 +1,1 @@
+ALTER TABLE `pending_posts` ADD `awaiting_photo` integer DEFAULT false NOT NULL;

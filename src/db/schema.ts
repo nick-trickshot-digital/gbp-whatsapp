@@ -83,11 +83,14 @@ export const pendingPosts = sqliteTable('pending_posts', {
   offerEndDate: integer('offer_end_date', { mode: 'timestamp' }),
   ctaType: text('cta_type'),
   status: text('status', {
-    enum: ['pending', 'awaiting_edit', 'approved', 'edited', 'skipped'],
+    enum: ['pending', 'awaiting_edit', 'approved', 'edited', 'skipped', 'awaiting_photo'],
   })
     .notNull()
     .default('pending'),
   customText: text('custom_text'),
+  awaitingPhoto: integer('awaiting_photo', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   createdAt: integer('created_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),

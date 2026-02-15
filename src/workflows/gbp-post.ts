@@ -1,4 +1,5 @@
 import { eq, and, ne } from 'drizzle-orm';
+import sharp from 'sharp';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import { generateGbpPost } from '../services/claude/client.js';
 import { createTextPost } from '../services/gbp/posts.js';
@@ -6,6 +7,7 @@ import { db } from '../db/client.js';
 import { pendingPosts, activityLog } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
 import { sendConfirmationWithMenu } from './menu.js';
+import { IMAGE_MAX_WIDTH, IMAGE_QUALITY } from '../config/constants.js';
 import type { clients } from '../db/schema.js';
 import type { InferSelectModel } from 'drizzle-orm';
 
@@ -109,35 +111,59 @@ export async function handlePostApproval(
 
   switch (action) {
     case 'approve': {
-      const postName = await createTextPost(
-        client.id,
-        client.gbpAccountId,
-        client.gbpLocationId,
-        pending.suggestedText,
-      );
-
+      // Ask if they want to add a photo
       await db
         .update(pendingPosts)
-        .set({ status: 'approved' })
+        .set({ status: 'awaiting_photo', awaitingPhoto: true })
         .where(eq(pendingPosts.id, pending.id));
 
-      await db.insert(activityLog).values({
-        clientId: client.id,
-        type: 'gbp_post',
-        payload: JSON.stringify({
-          gbpPostName: postName,
-          text: pending.suggestedText,
-          action: 'approved',
-        }),
-        status: 'success',
-      });
-
-      await sendConfirmationWithMenu(
-        client,
+      await whatsapp.sendInteractiveButtons(
         client.whatsappNumber,
-        'Posted to your Google profile!',
+        'Want to add a photo to this post? Send it now or skip.',
+        [
+          { id: `post_photo_skip_${pending.id}`, title: 'Skip (Post Now)' },
+        ],
       );
-      log.info({ clientId: client.id, postName }, 'GBP post approved and published');
+      log.info({ clientId: client.id, pendingId: pending.id }, 'Awaiting photo for post');
+      break;
+    }
+
+    case 'photo': {
+      const photoAction = parts[1]; // 'skip'
+      const photoPostId = parseInt(parts.slice(2).join('_'), 10);
+
+      if (photoAction === 'skip') {
+        // Post without photo
+        const postName = await createTextPost(
+          client.id,
+          client.gbpAccountId,
+          client.gbpLocationId,
+          pending.suggestedText,
+        );
+
+        await db
+          .update(pendingPosts)
+          .set({ status: 'approved', awaitingPhoto: false })
+          .where(eq(pendingPosts.id, photoPostId));
+
+        await db.insert(activityLog).values({
+          clientId: client.id,
+          type: 'gbp_post',
+          payload: JSON.stringify({
+            gbpPostName: postName,
+            text: pending.suggestedText,
+            action: 'approved',
+          }),
+          status: 'success',
+        });
+
+        await sendConfirmationWithMenu(
+          client,
+          client.whatsappNumber,
+          'Posted to your Google profile!',
+        );
+        log.info({ clientId: client.id, postName }, 'GBP post published without photo');
+      }
       break;
     }
 
@@ -225,4 +251,81 @@ export async function handlePostEdit(
   );
   log.info({ clientId: client.id, postName }, 'Edited GBP post published');
   return true;
+}
+
+/**
+ * Handle a photo attachment for a pending post.
+ * Returns true if the message was consumed, false otherwise.
+ */
+export async function handlePostPhoto(
+  client: Client,
+  imageId: string,
+): Promise<boolean> {
+  const pending = await db
+    .select()
+    .from(pendingPosts)
+    .where(
+      and(
+        eq(pendingPosts.clientId, client.id),
+        eq(pendingPosts.status, 'awaiting_photo'),
+        eq(pendingPosts.awaitingPhoto, true),
+        eq(pendingPosts.postType, 'standard'),
+      ),
+    )
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (!pending) return false;
+
+  log.info({ clientId: client.id, pendingId: pending.id }, 'Processing photo for post');
+
+  try {
+    // Download and optimize image
+    const rawImage = await whatsapp.downloadMedia(imageId);
+    const optimizedImage = await sharp(rawImage)
+      .resize(IMAGE_MAX_WIDTH, undefined, { withoutEnlargement: true })
+      .jpeg({ quality: IMAGE_QUALITY })
+      .toBuffer();
+
+    // Post with photo
+    const postName = await createTextPost(
+      client.id,
+      client.gbpAccountId,
+      client.gbpLocationId,
+      pending.customText || pending.suggestedText,
+      optimizedImage,
+    );
+
+    await db
+      .update(pendingPosts)
+      .set({ status: 'approved', awaitingPhoto: false })
+      .where(eq(pendingPosts.id, pending.id));
+
+    await db.insert(activityLog).values({
+      clientId: client.id,
+      type: 'gbp_post',
+      payload: JSON.stringify({
+        gbpPostName: postName,
+        text: pending.customText || pending.suggestedText,
+        action: 'approved_with_photo',
+      }),
+      status: 'success',
+    });
+
+    await sendConfirmationWithMenu(
+      client,
+      client.whatsappNumber,
+      'Posted to your Google profile with your photo!',
+    );
+    log.info({ clientId: client.id, postName }, 'GBP post with photo published');
+    return true;
+  } catch (err) {
+    log.error({ err, clientId: client.id }, 'Failed to attach photo to post');
+    await sendConfirmationWithMenu(
+      client,
+      client.whatsappNumber,
+      'Sorry, something went wrong with your photo. The post was not published.',
+    );
+    return true;
+  }
 }
