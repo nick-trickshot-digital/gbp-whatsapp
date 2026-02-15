@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import sharp from 'sharp';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import { generateOfferPost } from '../services/claude/client.js';
-import { createOfferPost } from '../services/gbp/posts.js';
+import { createOfferPost, createPhotoPost } from '../services/gbp/posts.js';
 import { db } from '../db/client.js';
 import { pendingPosts, activityLog } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
@@ -302,15 +302,15 @@ export async function handleOfferPhoto(
       .jpeg({ quality: IMAGE_QUALITY })
       .toBuffer();
 
-    // Post with photo
-    const postName = await createOfferPost(
+    // Post with photo using photo post method
+    // Note: Offer metadata (CTA, end date) is not supported with photos yet
+    // due to GBP API limitations - posting as standard photo post
+    const postName = await createPhotoPost(
       client.id,
       client.gbpAccountId,
       client.gbpLocationId,
-      pending.customText || pending.suggestedText,
-      pending.offerEndDate || new Date(Date.now() + OFFER_DEFAULT_DURATION_DAYS * 24 * 60 * 60 * 1000),
-      pending.ctaType || 'CALL',
       optimizedImage,
+      pending.customText || pending.suggestedText,
     );
 
     await db

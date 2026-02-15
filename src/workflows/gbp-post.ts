@@ -2,7 +2,7 @@ import { eq, and, ne } from 'drizzle-orm';
 import sharp from 'sharp';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import { generateGbpPost } from '../services/claude/client.js';
-import { createTextPost } from '../services/gbp/posts.js';
+import { createPhotoPost, createTextPost } from '../services/gbp/posts.js';
 import { db } from '../db/client.js';
 import { pendingPosts, activityLog } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
@@ -287,13 +287,13 @@ export async function handlePostPhoto(
       .jpeg({ quality: IMAGE_QUALITY })
       .toBuffer();
 
-    // Post with photo
-    const postName = await createTextPost(
+    // Post with photo using the photo post method (uploads to GBP correctly)
+    const postName = await createPhotoPost(
       client.id,
       client.gbpAccountId,
       client.gbpLocationId,
-      pending.customText || pending.suggestedText,
       optimizedImage,
+      pending.customText || pending.suggestedText,
     );
 
     await db

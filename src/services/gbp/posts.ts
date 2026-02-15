@@ -119,15 +119,13 @@ async function uploadMedia(
 }
 
 /**
- * Create a text post (Local Post) on a client's Google Business Profile.
- * Optionally includes a photo if imageBuffer is provided.
+ * Create a text-only post (Local Post) on a client's Google Business Profile.
  */
 export async function createTextPost(
   clientId: number,
   gbpAccountId: string,
   gbpLocationId: string,
   caption: string,
-  imageBuffer?: Buffer,
 ): Promise<string> {
   const auth = await getAuthenticatedClient(clientId);
   const accessToken = (await auth.getAccessToken()).token;
@@ -136,31 +134,10 @@ export async function createTextPost(
     throw new Error('Failed to get GBP access token');
   }
 
-  log.info({ clientId, gbpLocationId, withImage: !!imageBuffer }, 'Creating GBP text post');
-
-  // Upload image if provided
-  let mediaUrl: string | undefined;
-  if (imageBuffer) {
-    mediaUrl = await uploadMedia(accessToken, gbpAccountId, gbpLocationId, imageBuffer);
-  }
+  log.info({ clientId, gbpLocationId }, 'Creating GBP text post');
 
   const postName = await retry(
     async () => {
-      const payload: any = {
-        languageCode: 'en',
-        summary: caption,
-        topicType: 'STANDARD',
-      };
-
-      if (mediaUrl) {
-        payload.media = [
-          {
-            mediaFormat: 'PHOTO',
-            sourceUrl: mediaUrl,
-          },
-        ];
-      }
-
       const response = await fetch(
         `${GBP_API_V4_BASE}/accounts/${gbpAccountId}/locations/${gbpLocationId}/localPosts`,
         {
@@ -169,7 +146,11 @@ export async function createTextPost(
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            languageCode: 'en',
+            summary: caption,
+            topicType: 'STANDARD',
+          }),
         },
       );
 
@@ -191,7 +172,6 @@ export async function createTextPost(
 /**
  * Create an offer post on a client's Google Business Profile.
  * Includes call-to-action button and offer validity dates.
- * Optionally includes a photo if imageBuffer is provided.
  */
 export async function createOfferPost(
   clientId: number,
@@ -200,7 +180,6 @@ export async function createOfferPost(
   caption: string,
   offerEndDate: Date,
   ctaType: string = 'CALL',
-  imageBuffer?: Buffer,
 ): Promise<string> {
   const auth = await getAuthenticatedClient(clientId);
   const accessToken = (await auth.getAccessToken()).token;
@@ -209,13 +188,7 @@ export async function createOfferPost(
     throw new Error('Failed to get GBP access token');
   }
 
-  log.info({ clientId, gbpLocationId, withImage: !!imageBuffer }, 'Creating GBP offer post');
-
-  // Upload image if provided
-  let mediaUrl: string | undefined;
-  if (imageBuffer) {
-    mediaUrl = await uploadMedia(accessToken, gbpAccountId, gbpLocationId, imageBuffer);
-  }
+  log.info({ clientId, gbpLocationId }, 'Creating GBP offer post');
 
   const now = new Date();
   const formatDate = (d: Date) => ({
@@ -226,31 +199,6 @@ export async function createOfferPost(
 
   const postName = await retry(
     async () => {
-      const payload: any = {
-        languageCode: 'en',
-        summary: caption,
-        topicType: 'OFFER',
-        callToAction: {
-          actionType: ctaType,
-        },
-        event: {
-          title: 'Special Offer',
-          schedule: {
-            startDate: formatDate(now),
-            endDate: formatDate(offerEndDate),
-          },
-        },
-      };
-
-      if (mediaUrl) {
-        payload.media = [
-          {
-            mediaFormat: 'PHOTO',
-            sourceUrl: mediaUrl,
-          },
-        ];
-      }
-
       const response = await fetch(
         `${GBP_API_V4_BASE}/accounts/${gbpAccountId}/locations/${gbpLocationId}/localPosts`,
         {
@@ -259,7 +207,21 @@ export async function createOfferPost(
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            languageCode: 'en',
+            summary: caption,
+            topicType: 'OFFER',
+            callToAction: {
+              actionType: ctaType,
+            },
+            event: {
+              title: 'Special Offer',
+              schedule: {
+                startDate: formatDate(now),
+                endDate: formatDate(offerEndDate),
+              },
+            },
+          }),
         },
       );
 
