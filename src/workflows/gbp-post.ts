@@ -186,15 +186,9 @@ export async function handlePostApproval(
         .set({ status: 'awaiting_edit' })
         .where(eq(pendingPosts.id, pending.id));
 
-      // WhatsApp interactive body max is 1024 chars — truncate if needed
-      const maxLen = 900;
-      const currentDraft = pending.suggestedText.length > maxLen
-        ? pending.suggestedText.slice(0, maxLen) + '...'
-        : pending.suggestedText;
-
       await whatsapp.sendTextMessage(
         client.whatsappNumber,
-        `Current draft:\n\n"${currentDraft}"\n\nWhat would you like to change? (e.g., "make it shorter", "add that it's for income protection too", "more professional tone")`,
+        'What would you like to change? (e.g., "make it shorter", "add that it\'s for income protection too", "more professional tone")',
       );
       log.info({ clientId: client.id, pendingId }, 'Awaiting edit feedback');
       break;
