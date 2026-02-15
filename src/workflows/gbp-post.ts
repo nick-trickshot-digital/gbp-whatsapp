@@ -104,13 +104,13 @@ export async function handlePostApproval(
     return;
   }
 
-  if (pending.status !== 'pending') {
-    log.info({ pendingId, status: pending.status }, 'Post already handled');
-    return;
-  }
-
   switch (action) {
     case 'approve': {
+      // Only process if status is 'pending'
+      if (pending.status !== 'pending') {
+        log.info({ pendingId, status: pending.status }, 'Post already handled');
+        return;
+      }
       // Ask if they want to add a photo
       await db
         .update(pendingPosts)
@@ -131,6 +131,12 @@ export async function handlePostApproval(
     case 'photo': {
       const photoAction = parts[1]; // 'skip'
       const photoPostId = parseInt(parts.slice(2).join('_'), 10);
+
+      // Only process if status is 'awaiting_photo'
+      if (pending.status !== 'awaiting_photo') {
+        log.info({ pendingId, status: pending.status }, 'Post not awaiting photo');
+        return;
+      }
 
       if (photoAction === 'skip') {
         // Post without photo
@@ -168,6 +174,12 @@ export async function handlePostApproval(
     }
 
     case 'edit': {
+      // Only process if status is 'pending'
+      if (pending.status !== 'pending') {
+        log.info({ pendingId, status: pending.status }, 'Post already handled');
+        return;
+      }
+
       await db
         .update(pendingPosts)
         .set({ status: 'awaiting_edit' })
@@ -182,6 +194,11 @@ export async function handlePostApproval(
     }
 
     case 'skip': {
+      // Only process if status is 'pending'
+      if (pending.status !== 'pending') {
+        log.info({ pendingId, status: pending.status }, 'Post already handled');
+        return;
+      }
       await db
         .update(pendingPosts)
         .set({ status: 'skipped' })
