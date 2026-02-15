@@ -200,11 +200,17 @@ export async function handleOfferApproval(
         .set({ status: 'awaiting_edit' })
         .where(eq(pendingPosts.id, pending.id));
 
+      // WhatsApp interactive body max is 1024 chars — truncate if needed
+      const maxLen = 900;
+      const currentDraft = pending.suggestedText.length > maxLen
+        ? pending.suggestedText.slice(0, maxLen) + '...'
+        : pending.suggestedText;
+
       await whatsapp.sendTextMessage(
         client.whatsappNumber,
-        "Type the offer text you'd like to publish:",
+        `Current draft:\n\n"${currentDraft}"\n\nWhat would you like to change? (e.g., "make it shorter", "mention 20% discount", "more urgent tone")`,
       );
-      log.info({ clientId: client.id, pendingId }, 'Awaiting edited offer text');
+      log.info({ clientId: client.id, pendingId }, 'Awaiting offer edit feedback');
       break;
     }
 
@@ -230,12 +236,13 @@ export async function handleOfferApproval(
 }
 
 /**
- * Handle edited offer text from a tradesperson who tapped "Edit".
+ * Handle edit feedback from a tradesperson who tapped "Edit".
+ * Regenerates the offer incorporating their feedback.
  * Returns true if the message was consumed, false otherwise.
  */
 export async function handleOfferEdit(
   client: Client,
-  text: string,
+  feedback: string,
 ): Promise<boolean> {
   const pending = await db
     .select()
@@ -252,38 +259,67 @@ export async function handleOfferEdit(
 
   if (!pending || pending.prompt === '__awaiting_offer_input__') return false;
 
-  const postName = await createOfferPost(
-    client.id,
-    client.gbpAccountId,
-    client.gbpLocationId,
-    text,
-    pending.offerEndDate || new Date(Date.now() + OFFER_DEFAULT_DURATION_DAYS * 24 * 60 * 60 * 1000),
-    pending.ctaType || 'CALL',
-  );
+  log.info({ clientId: client.id, pendingId: pending.id }, 'Regenerating offer with feedback');
 
-  await db
-    .update(pendingPosts)
-    .set({ status: 'edited', customText: text })
-    .where(eq(pendingPosts.id, pending.id));
+  try {
+    // Regenerate with feedback incorporated
+    const revisedPrompt = `${pending.prompt}\n\nRevision request: ${feedback}\n\nCurrent draft to revise:\n"${pending.suggestedText}"`;
 
-  await db.insert(activityLog).values({
-    clientId: client.id,
-    type: 'offer_posted',
-    payload: JSON.stringify({
-      gbpPostName: postName,
-      text,
-      action: 'edited',
-    }),
-    status: 'success',
-  });
+    const revisedText = await generateOfferPost({
+      prompt: revisedPrompt,
+      tradeType: client.tradeType,
+      businessName: client.businessName,
+      county: client.county,
+      businessContext: {
+        summary: client.websiteSummary ?? undefined,
+        serviceAreas: client.serviceAreas ?? undefined,
+        services: client.services ?? undefined,
+      },
+    });
 
-  await sendConfirmationWithMenu(
-    client,
-    client.whatsappNumber,
-    'Your offer has been posted to Google Maps!',
-  );
-  log.info({ clientId: client.id, postName }, 'Edited offer post published');
-  return true;
+    // Update the pending post with the revised text and reset to pending for approval
+    await db
+      .update(pendingPosts)
+      .set({
+        suggestedText: revisedText,
+        status: 'pending',
+      })
+      .where(eq(pendingPosts.id, pending.id));
+
+    // Show the revised version for approval
+    const endDateStr = (pending.offerEndDate || new Date(Date.now() + OFFER_DEFAULT_DURATION_DAYS * 24 * 60 * 60 * 1000))
+      .toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+
+    const maxPreviewLen = 900;
+    const previewText = revisedText.length > maxPreviewLen
+      ? revisedText.slice(0, maxPreviewLen) + '...'
+      : revisedText;
+
+    await whatsapp.sendInteractiveButtons(
+      client.whatsappNumber,
+      `Here's the revised offer:\n\n"${previewText}"\n\nOffer valid until: ${endDateStr}\nCall-to-action: Call Now`,
+      [
+        { id: `offer_approve_${pending.id}`, title: 'Post It' },
+        { id: `offer_edit_${pending.id}`, title: 'Edit Again' },
+        { id: `offer_skip_${pending.id}`, title: 'Skip' },
+      ],
+    );
+
+    log.info({ clientId: client.id, pendingId: pending.id }, 'Revised offer sent for approval');
+    return true;
+  } catch (err) {
+    log.error({ err, clientId: client.id }, 'Failed to regenerate offer');
+    await sendConfirmationWithMenu(
+      client,
+      client.whatsappNumber,
+      'Sorry, something went wrong revising your offer. Please try again.',
+    );
+    return true;
+  }
 }
 
 /**

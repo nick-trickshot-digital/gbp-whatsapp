@@ -186,11 +186,17 @@ export async function handlePostApproval(
         .set({ status: 'awaiting_edit' })
         .where(eq(pendingPosts.id, pending.id));
 
+      // WhatsApp interactive body max is 1024 chars — truncate if needed
+      const maxLen = 900;
+      const currentDraft = pending.suggestedText.length > maxLen
+        ? pending.suggestedText.slice(0, maxLen) + '...'
+        : pending.suggestedText;
+
       await whatsapp.sendTextMessage(
         client.whatsappNumber,
-        'Type the post you\'d like to publish:',
+        `Current draft:\n\n"${currentDraft}"\n\nWhat would you like to change? (e.g., "make it shorter", "add that it's for income protection too", "more professional tone")`,
       );
-      log.info({ clientId: client.id, pendingId }, 'Awaiting edited post text');
+      log.info({ clientId: client.id, pendingId }, 'Awaiting edit feedback');
       break;
     }
 
@@ -216,12 +222,13 @@ export async function handlePostApproval(
 }
 
 /**
- * Handle edited post text from a tradesperson who tapped "Edit".
+ * Handle edit feedback from a tradesperson who tapped "Edit".
+ * Regenerates the post incorporating their feedback.
  * Returns true if the message was consumed, false otherwise.
  */
 export async function handlePostEdit(
   client: Client,
-  text: string,
+  feedback: string,
 ): Promise<boolean> {
   const pending = await db
     .select()
@@ -239,36 +246,60 @@ export async function handlePostEdit(
 
   if (!pending) return false;
 
-  const postName = await createTextPost(
-    client.id,
-    client.gbpAccountId,
-    client.gbpLocationId,
-    text,
-  );
+  log.info({ clientId: client.id, pendingId: pending.id }, 'Regenerating post with feedback');
 
-  await db
-    .update(pendingPosts)
-    .set({ status: 'edited', customText: text })
-    .where(eq(pendingPosts.id, pending.id));
+  try {
+    // Regenerate with feedback incorporated
+    const revisedPrompt = `${pending.prompt}\n\nRevision request: ${feedback}\n\nCurrent draft to revise:\n"${pending.suggestedText}"`;
 
-  await db.insert(activityLog).values({
-    clientId: client.id,
-    type: 'gbp_post',
-    payload: JSON.stringify({
-      gbpPostName: postName,
-      text,
-      action: 'edited',
-    }),
-    status: 'success',
-  });
+    const revisedText = await generateGbpPost({
+      prompt: revisedPrompt,
+      tradeType: client.tradeType,
+      businessName: client.businessName,
+      county: client.county,
+      businessContext: {
+        summary: client.websiteSummary ?? undefined,
+        serviceAreas: client.serviceAreas ?? undefined,
+        services: client.services ?? undefined,
+      },
+    });
 
-  await sendConfirmationWithMenu(
-    client,
-    client.whatsappNumber,
-    'Your post has been published!',
-  );
-  log.info({ clientId: client.id, postName }, 'Edited GBP post published');
-  return true;
+    // Update the pending post with the revised text and reset to pending for approval
+    await db
+      .update(pendingPosts)
+      .set({
+        suggestedText: revisedText,
+        status: 'pending',
+      })
+      .where(eq(pendingPosts.id, pending.id));
+
+    // Show the revised version for approval
+    const maxPreviewLen = 950;
+    const previewText = revisedText.length > maxPreviewLen
+      ? revisedText.slice(0, maxPreviewLen) + '...'
+      : revisedText;
+
+    await whatsapp.sendInteractiveButtons(
+      client.whatsappNumber,
+      `Here's the revised version:\n\n"${previewText}"`,
+      [
+        { id: `post_approve_${pending.id}`, title: 'Post It' },
+        { id: `post_edit_${pending.id}`, title: 'Edit Again' },
+        { id: `post_skip_${pending.id}`, title: 'Skip' },
+      ],
+    );
+
+    log.info({ clientId: client.id, pendingId: pending.id }, 'Revised post sent for approval');
+    return true;
+  } catch (err) {
+    log.error({ err, clientId: client.id }, 'Failed to regenerate post');
+    await sendConfirmationWithMenu(
+      client,
+      client.whatsappNumber,
+      'Sorry, something went wrong revising your post. Please try again.',
+    );
+    return true;
+  }
 }
 
 /**
