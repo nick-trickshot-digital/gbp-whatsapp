@@ -6,7 +6,7 @@ import { validateSignature } from '../middleware/signature-validation.js';
 import { lookupClientByPhone } from '../lib/phone.js';
 import { createChildLogger } from '../lib/logger.js';
 import { db } from '../db/client.js';
-import { clients, pendingPosts, pendingReviews } from '../db/schema.js';
+import { clients, pendingPosts, pendingReviews, processedWebhooks } from '../db/schema.js';
 import { executePhotoPipeline } from '../workflows/photo-pipeline.js';
 import {
   handleApprovalResponse,
@@ -68,6 +68,8 @@ export async function webhookRoutes(app: FastifyInstance) {
     '/webhook',
     { preHandler: validateSignature },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const startTime = Date.now();
+
       // Always respond 200 immediately to prevent Meta retries
       reply.status(200).send({ status: 'received' });
 
@@ -89,8 +91,27 @@ export async function webhookRoutes(app: FastifyInstance) {
           return;
         }
 
+        // Idempotency check - deduplicate by messageId
+        const isDuplicate = await db
+          .select()
+          .from(processedWebhooks)
+          .where(eq(processedWebhooks.messageId, message.messageId))
+          .limit(1)
+          .then((r) => r.length > 0);
+
+        if (isDuplicate) {
+          log.info({ messageId: message.messageId }, 'Duplicate webhook ignored (already processed)');
+          return;
+        }
+
+        // Record this message as processed
+        await db.insert(processedWebhooks).values({
+          messageId: message.messageId,
+        });
+
+        const responseTime = Date.now() - startTime;
         log.info(
-          { type: message.type, from: message.from },
+          { type: message.type, from: message.from, responseTime },
           'Processing inbound message',
         );
 

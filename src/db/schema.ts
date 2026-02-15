@@ -123,3 +123,11 @@ export const metricsHistory = sqliteTable('metrics_history', {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const processedWebhooks = sqliteTable('processed_webhooks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  messageId: text('message_id').notNull().unique(),
+  processedAt: integer('processed_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
