@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { WhatsAppService } from '../services/whatsapp/client.js';
 import { generateGbpPost } from '../services/claude/client.js';
 import { createPhotoPost, createTextPost } from '../services/gbp/posts.js';
-import { commitProjectPhoto } from '../services/github/client.js';
+import { saveImage, generateImageName } from '../lib/image-storage.js';
 import { db } from '../db/client.js';
 import { pendingPosts, activityLog } from '../db/schema.js';
 import { createChildLogger } from '../lib/logger.js';
@@ -298,6 +298,8 @@ export async function handlePostPhoto(
   log.info({ clientId: client.id, pendingId: pending.id }, 'Processing photo for post');
 
   try {
+    const caption = pending.customText || pending.suggestedText;
+
     // Download and optimize image
     const rawImage = await whatsapp.downloadMedia(imageId);
     const optimizedImage = await sharp(rawImage)
@@ -305,43 +307,11 @@ export async function handlePostPhoto(
       .jpeg({ quality: IMAGE_QUALITY })
       .toBuffer();
 
-    // Generate image name for GitHub
-    const caption = pending.customText || pending.suggestedText;
-    const date = new Date().toISOString().split('T')[0];
-    const slug = caption
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 40);
-    const imageName = `${slug}-${date}.jpg`;
+    // Save image to VPS and get public URL
+    const imageName = generateImageName(caption);
+    const imageUrl = await saveImage(optimizedImage, imageName);
 
-    // Generate markdown content
-    const markdownContent = `---
-title: "${caption.split('.')[0].replace(/"/g, '\\"')}"
-date: ${date}
-image: ./${imageName}
-trade: ${client.tradeType}
-business: "${client.businessName}"
-county: "${client.county}"
----
-
-${caption}
-`;
-
-    // Upload to GitHub first
-    await commitProjectPhoto({
-      repo: client.websiteRepo,
-      imageBuffer: optimizedImage,
-      imageName,
-      markdownContent,
-      commitMessage: `feat: add post photo - ${caption.slice(0, 50)}`,
-    });
-
-    // Construct public GitHub URL
-    const [owner, repo] = client.websiteRepo.split('/');
-    const imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/src/content/projects/${imageName}`;
-
-    // Post to GBP with the GitHub URL
+    // Post to GBP with the VPS-hosted image URL
     const postName = await createPhotoPost(
       client.id,
       client.gbpAccountId,

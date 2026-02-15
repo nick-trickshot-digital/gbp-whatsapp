@@ -3,6 +3,7 @@ import { WhatsAppService } from '../services/whatsapp/client.js';
 import { polishCaption } from '../services/claude/client.js';
 import { createPhotoPost } from '../services/gbp/posts.js';
 import { commitProjectPhoto } from '../services/github/client.js';
+import { saveImage, generateImageName as genImageName } from '../lib/image-storage.js';
 import { db } from '../db/client.js';
 import { activityLog } from '../db/schema.js';
 import { IMAGE_MAX_WIDTH, IMAGE_QUALITY } from '../config/constants.js';
@@ -66,31 +67,20 @@ export async function executePhotoPipeline(
     });
     log.info({ clientId: client.id }, 'Caption polished');
 
-    // 4. Upload to GitHub first to get public URL, then post to GBP
+    // 4. Save image to VPS, then post to GBP + GitHub in parallel
     const imageName = generateImageName(client, rawCaption);
+    const imageUrl = await saveImage(optimizedImage, genImageName(polishedCaption));
+
     const markdownContent = generateAstroContent(
       client,
       polishedCaption,
       imageName,
     );
 
-    // Upload to GitHub first
-    const githubResult = await Promise.allSettled([
-      commitProjectPhoto({
-        repo: client.websiteRepo,
-        imageBuffer: optimizedImage,
-        imageName,
-        markdownContent,
-        commitMessage: `feat: add project photo - ${rawCaption.slice(0, 50)}`,
-      }),
-    ]).then((r) => r[0]);
+    // Post to GBP and upload to GitHub in parallel
+    const hasGitHubRepo = client.websiteRepo && client.websiteRepo !== 'pending' && client.websiteRepo.includes('/');
 
-    // Construct public GitHub URL for the image
-    const [owner, repo] = client.websiteRepo.split('/');
-    const imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/src/content/projects/${imageName}`;
-
-    // Post to GBP with the GitHub URL
-    const gbpResult = await Promise.allSettled([
+    const [gbpResult, githubResult] = await Promise.allSettled([
       createPhotoPost(
         client.id,
         client.gbpAccountId,
@@ -98,7 +88,16 @@ export async function executePhotoPipeline(
         imageUrl,
         polishedCaption,
       ),
-    ]).then((r) => r[0]);
+      ...(hasGitHubRepo
+        ? [commitProjectPhoto({
+            repo: client.websiteRepo,
+            imageBuffer: optimizedImage,
+            imageName,
+            markdownContent,
+            commitMessage: `feat: add project photo - ${rawCaption.slice(0, 50)}`,
+          })]
+        : [Promise.resolve({ sha: 'N/A', url: 'N/A' })]),
+    ]);
 
     // 5. Log activity
     const gbpOk = gbpResult.status === 'fulfilled';
