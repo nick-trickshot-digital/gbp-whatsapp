@@ -72,7 +72,16 @@ export async function webhookRoutes(app: FastifyInstance) {
         const message = parseWebhookPayload(payload);
 
         if (!message) {
-          log.debug('No processable message in webhook payload');
+          // Log all unparsed payloads to diagnose missing webhooks
+          const entry = payload.entry?.[0];
+          const change = entry?.changes?.[0];
+          const statuses = change?.value?.statuses;
+          if (!statuses) {
+            log.info(
+              { payload: JSON.stringify(payload).slice(0, 500) },
+              'Unparsed webhook payload (not a status update)',
+            );
+          }
           return;
         }
 
