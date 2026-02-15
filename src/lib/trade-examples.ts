@@ -129,6 +129,18 @@ const TRADE_EXAMPLES: Record<string, TradeExamples> = {
       '€200 off digital marketing packages',
     ],
   },
+  'web design agency': {
+    post: [
+      'just launched a new website for a client',
+      'helped a local business rank #1 on Google',
+      "completed an SEO overhaul that tripled organic traffic",
+    ],
+    offer: [
+      'Free website audit',
+      'Free SEO audit',
+      '€200 off website packages',
+    ],
+  },
 };
 
 /**
